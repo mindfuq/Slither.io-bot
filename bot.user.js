@@ -8,7 +8,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // ==UserScript==
 // @name         Slither.io-bot A*
 // @namespace    http://slither.io/
-// @version      1.1.4
+// @version      1.1.5
 // @description  Slither.io bot A*
 // @author       Ermiya Eskandary & Théophile Cailliau
 // @match        http://slither.io/
@@ -40,8 +40,132 @@ window.getSnakeWidth = function(sc) {
 window.getSnakeWidthSqr = function(sc) {
     sc = sc || window.snake.sc;
     var width = window.getSnakeWidth();
-    return width*width;
+    return width * width;
 };
+
+var bot = (function() {
+    return {
+        ranOnce: false,
+        tickCounter: 0,
+        isBotRunning: false,
+        isBotEnabled: true,
+        currentPath: [],
+        radarResults: [],
+        followLine: 0,
+        behaviorData: {
+            foodTarget: 0,
+            followTime: 0,
+            followCoordinates: {x: 0, y: 0},
+            goalCoordinates: {x: 0, y: 0},
+            aggressor: 0
+        },
+        isTopHidden: false,
+
+        startBot: function() {
+            if (window.autoRespawn && !window.playing && bot.isBotEnabled &&
+                bot.ranOnce && !bot.isBotRunning) {
+                bot.connectBot();
+                /* The lastscore should be checked here in the future,
+                but not only when bot, just when not playing.
+                THIS SHOULD ONLY BE EXECUTED ONCE! */
+                userInterface.saveScore(); // Checks highscore
+            }
+            if (window.bso !== undefined) {
+                window.ip_overlay.innerHTML = window.spanstyle +
+                    'Server: ' + window.bso.ip + ':' + window.bso.po + '</span>';
+            }
+        },
+
+        quickRespawn: function() {
+            window.dead_mtm = 0;
+            window.login_fr = 0;
+            bot.isBotRunning = false;
+
+            /*
+            if (bot.isBotRunning) {
+                bot.launchBot();
+                bot.isBotRunning = false;
+                bot.isBotEnabled = true;
+            } else {
+                bot.stopBot();
+                bot.isBotEnabled = false;
+            } */
+
+            window.forcing = true;
+            window.connect();
+            window.forcing = false;
+        },
+
+        changeSkin: function() {
+            if (window.playing && window.snake !== null) {
+                var skin = window.snake.rcv;
+                var max = window.max_skin_cv;
+                skin++;
+                if (skin > max) {
+                    skin = 0;
+                }
+                window.setSkin(window.snake, skin);
+            }
+        },
+
+        rotateSkin: function() {
+            if (!window.rotateskin) {
+                return;
+            }
+            bot.changeSkin();
+            setTimeout(bot.rotateSkin, 500);
+        },
+
+        heading: {x: 1, y: 0},
+        prevAng: 0,
+
+        precalculate: function() {
+            var rang = window.snake.ang;// * collisionHelper.toRad;
+            bot.heading.x = Math.cos(rang);
+            bot.heading.y = Math.sin(rang);
+
+            if (bot.prevAng != window.snake.ang) {
+                bot.prevAng = window.snake.ang;
+                // console.log("Angle = " + window.snake.ang);
+            }
+        },
+
+        // Called by the window loop, this is the main logic of the bot.
+        thinkAboutGoals: function() {
+            // If no enemies or obstacles, go after what you are going after
+
+            bot.precalculate();
+            // window.setAcceleration(0);
+
+            // Save CPU by only calculating every Nth frame
+            // if (++bot.tickCounter >= 15) {
+            bot.tickCounter = 0;
+
+            collisionGrid.setup();
+
+            behaviors.run('snakebot', bot.behaviorData);
+
+            if (window.visualDebugging) {
+                var curpos = window.getPos();
+
+                var canvasPosA = {
+                    x: curpos.x,
+                    y: curpos.y,
+                    radius: 1
+                };
+                var canvasPosB = {
+                    x: curpos.x + bot.heading.x * 100,
+                    y: curpos.y + bot.heading.y * 100,
+                    radius: 1
+                };
+
+                canvas.drawLine(canvasPosA, canvasPosB, 'yellow', 2);
+            }
+            // bot.astarFoodFinder();
+        }
+
+    };
+})();
 
 var canvas = (function() {
     return {
@@ -341,13 +465,13 @@ var canvas = (function() {
 
         // Get distance squared, NO IT IS NOT??? BTW: not used anymore
         getDotProduct: function(x1, y1, x2, y2) {
-            return x1*x2 + y1*y2;
+            return x1 * x2 + y1 * y2;
         },
 
         // normalVector, necessary for getRelativeAngle()
         getNormalVector: function(from, to) {
-            var dir = {x: to.x-from.x, y: to.y-from.y};
-            var len = dir.x*dir.x + dir.y*dir.y;
+            var dir = {x: to.x - from.x, y: to.y - from.y};
+            var len = dir.x * dir.x + dir.y * dir.y;
             len = Math.sqrt(len);
             dir.x /= len;
             dir.y /= len;
@@ -388,184 +512,6 @@ var canvas = (function() {
         }
     };
 })();
-var bot = (function() {
-    // Save the original slither.io onmousemove function so we can re enable it back later
-    var original_onmousemove = window.onmousemove;
-
-    return {
-        ranOnce: false,
-        tickCounter: 0,
-        isBotRunning: false,
-        isBotEnabled: true,
-        currentPath: [],
-        radarResults: [],
-        followLine: 0,
-        behaviorData: {
-            foodTarget: 0,
-            followTime: 0,
-            followCoordinates: {x: 0, y: 0},
-            goalCoordinates: {x: 0, y: 0},
-            aggressor: 0
-        },
-
-        startBot: function() {
-            if (window.autoRespawn && !window.playing && bot.isBotEnabled &&
-                bot.ranOnce && !bot.isBotRunning) {
-                bot.connectBot();
-                /* The lastscore should be checked here in the future,
-                but not only when bot, just when not playing.
-                THIS SHOULD ONLY BE EXECUTED ONCE! */
-                userInterface.saveScore(); // Checks highscore
-            }
-            if (window.bso !== undefined) {
-                window.ip_overlay.innerHTML = window.spanstyle +
-                    'Server: ' + window.bso.ip + ':' + window.bso.po + '</span>';
-            }
-        },
-
-        launchBot: function() {
-            window.log('Starting Bot.');
-            bot.isBotRunning = true;
-            // Update the HUD
-            userInterface.onPrefChange();
-
-            //if( collisionGrid.grid.length == 0 ) {
-                collisionGrid.init(100, 100, 30);
-            //}
-            /*
-             * Removed the onmousemove listener so we can
-             * move the snake manually by setting coordinates
-             */
-            window.onmousemove = function() {};
-        },
-
-        // Stops the bot
-        stopBot: function() {
-            window.setAcceleration(0); // Stop boosting
-            // Re-enable the original onmousemove function
-            window.onmousemove = original_onmousemove;
-
-            window.log('Stopping Bot.');
-            bot.isBotRunning = false;
-            // Update the HUD
-            userInterface.onPrefChange();
-        },
-
-        // Connects the bot
-        connectBot: function() {
-            if (!window.autoRespawn) return;
-            bot.stopBot(); // Just in case
-            window.log('Connecting...');
-            window.connect();
-
-            // Wait until we're playing to start the bot
-            window.botCanStart = setInterval(function() {
-                if (window.playing) {
-                    bot.launchBot();
-                    clearInterval(window.botCanStart);
-                }
-            }, 100);
-        },
-
-        forceConnect: function() {
-            if (!window.connect) {
-                return;
-            }
-            window.forcing = true;
-            if (!window.bso) {
-                window.bso = {};
-            }
-            window.currentIP = window.bso.ip + ':' + window.bso.po;
-            var srv = window.currentIP.trim().split(':');
-            window.bso.ip = srv[0];
-            window.bso.po = srv[1];
-            window.connect();
-        },
-
-        quickRespawn: function() {
-            window.dead_mtm = 0;
-            window.login_fr = 0;
-            bot.forceConnect();
-            if (bot.isBotRunning) {
-                bot.launchBot();
-                bot.isBotRunning = false;
-                bot.isBotEnabled = true;
-            } else {
-                bot.stopBot();
-                bot.isBotEnabled = false;
-            }
-        },
-
-        changeSkin: function() {
-            if (window.playing && window.snake !== null) {
-                var skin = window.snake.rcv;
-                var max = window.max_skin_cv;
-                skin++;
-                if (skin > max) {
-                    skin = 0;
-                }
-                window.setSkin(window.snake, skin);
-            }
-        },
-
-        rotateSkin: function() {
-            if (!window.rotateskin) {
-                return;
-            }
-            bot.changeSkin();
-            setTimeout(bot.rotateSkin, 500);
-        },
-
-        heading: {x:1, y:0},
-        prevAng: 0,
-
-        precalculate: function() {
-            var rang = window.snake.ang;// * collisionHelper.toRad;
-            bot.heading.x = Math.cos(rang);
-            bot.heading.y = Math.sin(rang);
-
-            if( bot.prevAng != window.snake.ang ) {
-                bot.prevAng = window.snake.ang;
-                //console.log("Angle = " + window.snake.ang);
-            }
-        },
-
-        // Called by the window loop, this is the main logic of the bot.
-        thinkAboutGoals: function() {
-            // If no enemies or obstacles, go after what you are going after
-
-            bot.precalculate();
-            //window.setAcceleration(0);
-
-            // Save CPU by only calculating every Nth frame
-            //if (++bot.tickCounter >= 15) {
-            bot.tickCounter = 0;
-
-            collisionGrid.setup();
-
-            behaviors.run('snakebot', bot.behaviorData);
-
-            if( window.visualDebugging ) {
-                var curpos = window.getPos();
-
-                var canvasPosA = {
-                    x: curpos.x,
-                    y: curpos.y,
-                    radius: 1
-                };
-                var canvasPosB = {
-                    x: curpos.x + bot.heading.x*100,
-                    y: curpos.y + bot.heading.y*100,
-                    radius: 1
-                };
-
-                canvas.drawLine(canvasPosA, canvasPosB, 'yellow', 2);
-            }
-            //bot.astarFoodFinder();
-        },
-
-    };
-})();
 
 var userInterface = (function() {
     // Save the original event listeners so we can reenable them later.
@@ -575,6 +521,8 @@ var userInterface = (function() {
     // As well as the original slither.io game functions so we can modify them
     var original_oef = window.oef;
     var original_redraw = window.redraw;
+    // Save the original slither.io onmousemove function so we can re enable it back later
+    var original_onmousemove = window.onmousemove;
 
     window.oef = function() {};
     window.redraw = function() {};
@@ -721,7 +669,7 @@ var userInterface = (function() {
                 if (nsidivs[i].style.top === '4px' && nsidivs[i].style.width === '300px') {
                     nsidivs[i].style.visibility = 'hidden';
                     nsidivs[i].style.zIndex = -1;
-                    // bot.isTopHidden = true;
+                    bot.isTopHidden = true;
                 }
             }
         },
@@ -742,22 +690,14 @@ var userInterface = (function() {
                 return (1000 / this.frameTime).toFixed(0);
             }
         },
-        onmouseup: function() {
-            window.setAcceleration(0);
-        },
+
         onkeydown: function(e) {
             // Original slither.io onkeydown function + whatever is under it
             original_keydown(e);
             if (window.playing) {
                 // Letter `T` to toggle bot
                 if (e.keyCode === 84) {
-                    if (bot.isBotRunning) {
-                        bot.stopBot();
-                        bot.isBotEnabled = false;
-                    } else {
-                        bot.launchBot();
-                        bot.isBotEnabled = true;
-                    }
+                    bot.isBotEnabled = !bot.isBotEnabled;
                 }
                 // Letter 'U' to toggle debugging (console)
                 if (e.keyCode === 85) {
@@ -841,7 +781,9 @@ var userInterface = (function() {
                         'Your personal highscores', 'width=300,height=300');
                     scores_window.document.write(tekst);
                 } */
-                userInterface.onPrefChange(); // Update the bot status
+                // Update the HUD and bot status
+                userInterface.onPrefChange();
+                userInterface.onFrameUpdate();
             }
         },
 
@@ -855,16 +797,18 @@ var userInterface = (function() {
                         break;
                     // "Right click" to toggle bot in addition to the letter "T"
                     case 3:
-                        if (bot.isBotRunning) {
-                            bot.stopBot();
-                            bot.isBotEnabled = false;
-                        } else {
-                            bot.launchBot();
-                            bot.isBotEnabled = true;
-                        }
-                        userInterface.onPrefChange(); // Update the bot status
+                        bot.isBotEnabled = !bot.isBotEnabled;
+                        // Update the HUD and bot status
+                        userInterface.onPrefChange();
+                        userInterface.onFrameUpdate();
                         break;
                 }
+            }
+        },
+
+        onmouseup: function(e) {
+            if (window.playing && e.which === 1) {
+                window.setAcceleration(0);
             }
         },
 
@@ -906,7 +850,7 @@ var userInterface = (function() {
             }
 
             /*
-            if (window.playing && window.visualDebugging && bot.isBotRunning) {
+            if (window.playing && window.visualDebugging) {
                 // Only draw the goal when a bot has a goal.
                 if (bot.behaviorData.goalCoordinates) {
                     var headCoord = {
@@ -920,13 +864,69 @@ var userInterface = (function() {
             } */
         },
 
+        // Loop for running the bot
         oefTimer: function() {
             // Original slither.io oef function + whatever is under it
             // requestAnimationFrame(window.loop);
             original_oef();
             new_redraw();
-            if (bot.isBotRunning) window.loop();
+
+            // If the game is running and the bot is enabled
+            if (window.playing && bot.isBotEnabled) {
+                // But the bot is not yet running
+                if (!bot.isBotRunning) {
+                    window.log('Starting Bot.');
+
+                    /*
+                     * Removed the onmousemove listener so we can
+                     * move the snake manually by setting coordinates
+                     */
+                    window.onmousemove = function() {};
+
+                    // if( collisionGrid.grid.length == 0 ) {
+                    collisionGrid.init(100, 100, 30);
+                    // }
+                }
+
+                bot.isBotRunning = true;
+                bot.thinkAboutGoals();
+            } else if (bot.isBotEnabled && bot.isBotRunning) {
+                bot.isBotRunning = false;
+                userInterface.saveScore();
+
+                if (window.autoRespawn) {
+                    window.log('Connecting...');
+                    window.connect();
+                }
+            }
+
+            if (!bot.isBotEnabled) {
+                window.setAcceleration(0); // Stop boosting
+                // Re-enable the original onmousemove function
+                window.onmousemove = original_onmousemove;
+
+                window.log('Stopping Bot.');
+                // bot.isBotRunning = false;
+            }
+
+            // Update the HUD
+            userInterface.onPrefChange();
             userInterface.onFrameUpdate();
+        },
+
+        forceConnect: function() {
+            if (!window.connect) {
+                return;
+            }
+            window.forcing = true;
+            if (!window.bso) {
+                window.bso = {};
+            }
+            window.currentIP = window.bso.ip + ':' + window.bso.po;
+            var srv = window.currentIP.trim().split(':');
+            window.bso.ip = srv[0];
+            window.bso.po = srv[1];
+            window.connect();
         },
 
         // Quit to menu
@@ -958,19 +958,6 @@ var userInterface = (function() {
         }
     };
 })();
-
-// Loop for running the bot
-window.loop = function() {
-    // If the game and the bot are running
-    if (window.playing && bot.isBotEnabled) {
-        bot.ranOnce = true;
-        bot.thinkAboutGoals();
-    } else {
-        bot.stopBot();
-    }
-};
-
-window.sosBackup = sos;
 
 // Main
 (function() {
@@ -1048,7 +1035,7 @@ window.sosBackup = sos;
 
     // Check for excisting highscore, if not, do not display it
     var highScore = parseInt(userInterface.loadPreference('highscore', false));
-    if(highScore) {
+    if (highScore) {
         window.highscore_overlay.innerHTML = window.spanstyle +
             'Your highscore: ' + highScore + '</span>';
     }
@@ -1061,7 +1048,6 @@ window.sosBackup = sos;
     userInterface.onPrefChange();
 
     // Hand over existing event listeners
-    
     document.onkeydown = userInterface.onkeydown;
     window.onmousedown = userInterface.onmousedown;
     window.onresize = userInterface.onresize;
@@ -1082,7 +1068,5 @@ window.sosBackup = sos;
     window.social.remove();
 
     // Start!
-    bot.launchBot();
-    setInterval(bot.startBot, 1000);
     setInterval(userInterface.oefTimer, 30);
 })();
